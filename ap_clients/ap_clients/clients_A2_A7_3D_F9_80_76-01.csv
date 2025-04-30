@@ -1,0 +1,9 @@
+
+BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key
+A2:A7:3D:F9:80:76, 2025-04-30 00:03:47, 2025-04-30 00:03:49, 11, 180, WPA2, CCMP, PSK, -31,        2,       31,   0.  0.  0.  0,  11, selmi firas, 
+
+Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
+5C:61:99:03:68:95, 2025-04-30 00:03:47, 2025-04-30 00:03:49, -16,       25, A2:A7:3D:F9:80:76,
+4E:8C:49:81:72:46, 2025-04-30 00:03:48, 2025-04-30 00:03:48, -42,        1, A2:A7:3D:F9:80:76,
+20:79:18:54:22:ED, 2025-04-30 00:03:49, 2025-04-30 00:03:49,  -1,       28, A2:A7:3D:F9:80:76,
+
