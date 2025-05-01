@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi AP Visualizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .main-content {
+            display: flex;
+            flex-grow: 1;
+            gap: 20px;
+        }
+        
+        .visualization {
+            flex-grow: 1;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #visualization-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+            border: 1px solid #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        
+        #visualization-svg {
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+        }
+        
+        .controls h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 18px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        input[type="checkbox"] {
+            margin-right: 5px;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+        }
+        
+        input[type="number"] {
+            width: 60px;
+            padding: 5px;
+        }
+        
+        .ap-list {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        
+        .ap-list h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 18px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        
+        .ap-item {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+            cursor: pointer;
+        }
+        
+        .ap-item:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .ap-item.selected {
+            background-color: #e3f2fd;
+        }
+        
+        .ap-item h4 {
+            margin: 0 0 5px 0;
+            font-size: 16px;
+        }
+        
+        .ap-details {
+            font-size: 14px;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .signal-strength {
+            display: inline-block;
+            width: 60px;
+            height: 10px;
+            background: linear-gradient(to right, red, orange, blue, green);
+            border-radius: 2px;
+            position: relative;
+        }
+        
+        .signal-indicator {
+            position: absolute;
+            top: -2px;
+            width: 3px;
+            height: 14px;
+            background-color: black;
+            transform: translateX(-50%);
+        }
+        
+        .legend {
+            margin-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 10px;
+        }
+        
+        .legend h3 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+        
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 10px;
+            border-radius: 50%;
+        }
+        
+        .status-bar {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+        }
+        
+        /* AP Node styling */
+        .ap-node {
+            cursor: pointer;
+            transition: r 0.2s ease;
+        }
+        
+        .ap-node:hover {
+            stroke: #333;
+            stroke-width: 2px;
+        }
+        
+        .ap-label {
+            font-size: 12px;
+            pointer-events: none;
+        }
+        
+        .ap-tooltip {
+            position: absolute;
+            padding: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            z-index: 1000;
+            font-size: 14px;
+        }
+        
+        .ap-tooltip h4 {
+            margin: 0 0 5px 0;
+            font-size: 16px;
+        }
+        
+        .ap-tooltip p {
+            margin: 3px 0;
+        }
+        
+        .center-marker {
+            fill: rgba(255, 255, 255, 0.8);
+            stroke: #2c3e50;
+            stroke-width: 2px;
+        }
+        
+        /* Zoom controls */
+        .zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            z-index: 100;
+        }
+        
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .zoom-btn:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .zoom-reset {
+            font-size: 14px;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 980px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                order: 2;
+            }
+            
+            .visualization {
+                order: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>WiFi Access Point Visualizer</h1>
+            <div id="connection-status">Status: Connected</div>
+        </header>
+        
+        <div class="main-content">
+            <div class="visualization">
+                <div id="visualization-container">
+                    <svg id="visualization-svg"></svg>
+                    <div class="zoom-controls">
+                        <button class="zoom-btn zoom-in">+</button>
+                        <button class="zoom-btn zoom-out">-</button>
+                        <button class="zoom-btn zoom-reset">Reset</button>
+                    </div>
+                </div>
+                <div class="ap-tooltip" id="ap-tooltip"></div>
+            </div>
+            
+            <div class="sidebar">
+                <div class="controls">
+                    <h3>Visualization Controls</h3>
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="use-beacons">
+                            Use Beacons for Distance
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="use-channels" checked>
+                            Adjust for Channel Frequency
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <label for="position-update-factor">Position Update Factor:</label>
+                        <input type="range" id="position-update-factor" min="0.1" max="1" step="0.1" value="0.8">
+                        <span id="position-update-factor-value">0.8</span>
+                    </div>
+                    <div class="control-group">
+                        <label for="rssi-threshold">RSSI Change Threshold:</label>
+                        <input type="number" id="rssi-threshold" min="1" max="10" value="1">
+                    </div>
+                    <div class="control-group">
+                        <label for="beacon-threshold">Beacon Change Threshold:</label>
+                        <input type="number" id="beacon-threshold" min="1" max="100" value="3">
+                    </div>
+                </div>
+                
+                <div class="ap-list">
+                    <h3>Access Points</h3>
+                    <div id="ap-list-container">
+                        <!-- AP list items will be added here dynamically -->
+                    </div>
+                </div>
+                
+                <div class="legend">
+                    <h3>Signal Strength</h3>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: green;"></div>
+                        <span>Excellent (-30 to -50 dBm)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: blue;"></div>
+                        <span>Good (-51 to -65 dBm)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: orange;"></div>
+                        <span>Fair (-66 to -75 dBm)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background-color: red;"></div>
+                        <span>Poor (below -75 dBm)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="status-bar">
+            Updated: <span id="last-update">-</span> | 
+            <span id="ap-count">0</span> APs detected | 
+            Zoom: <span id="zoom-level">100%</span>
+        </div>
+    </div>
+    
+    <script>
+        // Main variables
+        let apData = [];
+        let selectedAP = null;
+        let visualization = null;
+        let tooltipTimer = null;
+        let zoomBehavior = null;
+        let zoomLevel = 1;
+        
+        // Get DOM elements
+        const svg = d3.select("#visualization-svg");
+        const tooltip = d3.select("#ap-tooltip");
+        const apListContainer = document.getElementById("ap-list-container");
+        const lastUpdateElement = document.getElementById("last-update");
+        const apCountElement = document.getElementById("ap-count");
+        const connectionStatus = document.getElementById("connection-status");
+        const zoomLevelElement = document.getElementById("zoom-level");
+        
+        // Control elements
+        const useBeaconsCheckbox = document.getElementById("use-beacons");
+        const useChannelsCheckbox = document.getElementById("use-channels");
+        const positionUpdateFactor = document.getElementById("position-update-factor");
+        const positionUpdateFactorValue = document.getElementById("position-update-factor-value");
+        const rssiThreshold = document.getElementById("rssi-threshold");
+        const beaconThreshold = document.getElementById("beacon-threshold");
+        const zoomInBtn = document.querySelector(".zoom-in");
+        const zoomOutBtn = document.querySelector(".zoom-out");
+        const zoomResetBtn = document.querySelector(".zoom-reset");
+        
+        // Initialize visualization
+        function initVisualization() {
+            // Set up SVG
+            svg.attr("width", "100%")
+               .attr("height", "100%");
+            
+            // Create a group for all visualization elements to apply zoom
+            const vizGroup = svg.append("g")
+                .attr("class", "viz-group");
+                
+            // Setup zoom behavior
+            zoomBehavior = d3.zoom()
+                .scaleExtent([0.5, 5])  // Min/max zoom level
+                .on("zoom", handleZoom);
+            
+            // Apply zoom behavior to SVG
+            svg.call(zoomBehavior);
+            
+            // Add center marker (your position)
+            vizGroup.append("circle")
+               .attr("class", "center-marker")
+               .attr("cx", "50%")
+               .attr("cy", "50%")
+               .attr("r", 15)
+               .attr("fill", "white")
+               .attr("stroke", "#2c3e50")
+               .attr("stroke-width", 2);
+            
+            vizGroup.append("text")
+               .attr("text-anchor", "middle")
+               .attr("x", "50%")
+               .attr("y", "50%")
+               .attr("dy", "0.35em")
+               .attr("font-size", "10px")
+               .attr("pointer-events", "none")
+               .text("YOU");
+            
+            // Add concentric range circles
+            const ranges = [10, 20, 30, 40];
+            const rangeGroup = vizGroup.append("g").attr("class", "range-circles");
+            
+            ranges.forEach(range => {
+                rangeGroup.append("circle")
+                    .attr("cx", "50%")
+                    .attr("cy", "50%")
+                    .attr("r", range * 10)
+                    .attr("fill", "none")
+                    .attr("stroke", "#ccc")
+                    .attr("stroke-width", 1)
+                    .attr("stroke-dasharray", "5,5");
+                
+                rangeGroup.append("text")
+                    .attr("x", "50%")
+                    .attr("y", `calc(50% - ${range * 10}px)`)
+                    .attr("dy", "-5px")
+                    .attr("text-anchor", "middle")
+                    .attr("font-size", "10px")
+                    .attr("fill", "#999")
+                    .text(`${range}m`);
+            });
+        }
+        
+        // Handle zoom events
+        function handleZoom(event) {
+            // Update the visualization group transform
+            svg.select(".viz-group").attr("transform", event.transform);
+            
+            // Update current zoom level
+            zoomLevel = event.transform.k;
+            zoomLevelElement.textContent = `${Math.round(zoomLevel * 100)}%`;
+            
+            // Adjust node and text sizes for zoom level
+            svg.selectAll(".ap-node").attr("r", 8 / Math.sqrt(zoomLevel));
+            svg.selectAll(".ap-label").style("font-size", `${10 / Math.sqrt(zoomLevel)}px`);
+            svg.selectAll(".range-circles text").style("font-size", `${10 / Math.sqrt(zoomLevel)}px`);
+            
+            // If zoomed in too much, hide the range labels
+            if (zoomLevel > 2) {
+                svg.selectAll(".range-circles text").style("opacity", 0);
+            } else {
+                svg.selectAll(".range-circles text").style("opacity", 1);
+            }
+        }
+        
+        // Update visualization with new data
+        function updateVisualization(data) {
+            const centerX = parseFloat(svg.node().getBoundingClientRect().width) / 2;
+            const centerY = parseFloat(svg.node().getBoundingClientRect().height) / 2;
+            const vizGroup = svg.select(".viz-group");
+            
+            // Update AP nodes
+            const nodes = vizGroup.selectAll(".ap-node")
+                .data(data, d => d.bssid);
+            
+            // Remove old nodes
+            nodes.exit().remove();
+            
+            // Add new nodes
+            const newNodes = nodes.enter()
+                .append("circle")
+                .attr("class", "ap-node")
+                .attr("r", 8 / Math.sqrt(zoomLevel))
+                .on("mouseover", showTooltip)
+                .on("mouseout", hideTooltip)
+                .on("click", selectAP);
+            
+            // Update all nodes
+            nodes.merge(newNodes)
+                .attr("cx", d => centerX + d.x)
+                .attr("cy", d => centerY + d.y)
+                .attr("fill", d => d.color)
+                .attr("stroke", d => d.bssid === selectedAP ? "#000" : "none")
+                .attr("stroke-width", d => d.bssid === selectedAP ? 2 : 0);
+            
+            // Update labels
+            const labels = vizGroup.selectAll(".ap-label")
+                .data(data, d => d.bssid);
+            
+            labels.exit().remove();
+            
+            const newLabels = labels.enter()
+                .append("text")
+                .attr("class", "ap-label")
+                .attr("text-anchor", "middle")
+                .attr("font-size", `${10 / Math.sqrt(zoomLevel)}px`)
+                .attr("fill", "#333");
+            
+            labels.merge(newLabels)
+                .attr("x", d => centerX + d.x)
+                .attr("y", d => centerY + d.y - 15)
+                .text(d => d.essid ? (d.essid.length > 12 ? d.essid.substring(0, 10) + '...' : d.essid) : 'Hidden');
+        }
+        
+        // Show tooltip with AP details
+        function showTooltip(event, d) {
+            if (tooltipTimer) clearTimeout(tooltipTimer);
+            
+            const tooltipContent = `
+                <h4>${d.essid ? d.essid : 'Hidden Network'}</h4>
+                <p><strong>BSSID:</strong> ${d.bssid}</p>
+                <p><strong>Signal:</strong> ${d.rssi} dBm</p>
+                <p><strong>Channel:</strong> ${d.channel} (${d.freq_band})</p>
+                <p><strong>Distance:</strong> ~${d.distance.toFixed(1)}m</p>
+                <p><strong>Beacons:</strong> ${d.beacons}</p>
+            `;
+            
+            tooltip.html(tooltipContent)
+                .style("left", (event.pageX + 15) + "px")
+                .style("top", (event.pageY + 15) + "px")
+                .style("opacity", 1);
+        }
+        
+        // Hide tooltip
+        function hideTooltip() {
+            tooltipTimer = setTimeout(() => {
+                tooltip.style("opacity", 0);
+            }, 300);
+        }
+        
+        // Select an AP
+        function selectAP(event, d) {
+            selectedAP = d.bssid === selectedAP ? null : d.bssid;
+            
+            // Update visualization to highlight selected AP
+            updateVisualization(apData);
+            
+            // Update AP list to highlight selected AP
+            updateAPList(apData);
+            
+            // If an AP is selected, zoom and center on it
+            if (selectedAP) {
+                const centerX = parseFloat(svg.node().getBoundingClientRect().width) / 2;
+                const centerY = parseFloat(svg.node().getBoundingClientRect().height) / 2;
+                
+                svg.transition()
+                   .duration(750)
+                   .call(
+                       zoomBehavior.transform,
+                       d3.zoomIdentity
+                         .translate(centerX, centerY)
+                         .scale(2.5)
+                         .translate(-(centerX + d.x / zoomLevel), -(centerY + d.y / zoomLevel))
+                   );
+            }
+        }
+        
+        // Update AP list in sidebar
+        function updateAPList(data) {
+            // Sort by signal strength (strongest first)
+            const sortedData = [...data].sort((a, b) => b.rssi - a.rssi);
+            
+            // Clear current list
+            apListContainer.innerHTML = '';
+            
+            // Add each AP to the list
+            sortedData.forEach(ap => {
+                const apItem = document.createElement('div');
+                apItem.className = 'ap-item' + (ap.bssid === selectedAP ? ' selected' : '');
+                
+                // Calculate normalized signal position (0-100%)
+                const normalizedSignal = Math.min(Math.max((ap.rssi + 90) / 60, 0), 1) * 100;
+                
+                apItem.innerHTML = `
+                    <h4>${ap.essid || 'Hidden Network'}</h4>
+                    <div class="ap-details">
+                        <span>Ch: ${ap.channel} (${ap.freq_band})</span>
+                        <span>${ap.rssi} dBm</span>
+                    </div>
+                    <div class="ap-details">
+                        <div class="signal-strength">
+                            <div class="signal-indicator" style="left: ${normalizedSignal}%"></div>
+                        </div>
+                        <span>~${ap.distance.toFixed(1)}m</span>
+                    </div>
+                `;
+                
+                apItem.addEventListener('click', () => {
+                    selectedAP = ap.bssid === selectedAP ? null : ap.bssid;
+                    updateVisualization(apData);
+                    updateAPList(apData);
+                    
+                    // If an AP is selected, zoom and center on it
+                    if (selectedAP) {
+                        const centerX = parseFloat(svg.node().getBoundingClientRect().width) / 2;
+                        const centerY = parseFloat(svg.node().getBoundingClientRect().height) / 2;
+                        
+                        svg.transition()
+                           .duration(750)
+                           .call(
+                               zoomBehavior.transform,
+                               d3.zoomIdentity
+                                 .translate(centerX, centerY)
+                                 .scale(2.5)
+                                 .translate(-(centerX + ap.x / zoomLevel), -(centerY + ap.y / zoomLevel))
+                           );
+                    }
+                });
+                
+                apListContainer.appendChild(apItem);
+            });
+        }
+        
+        // Handle zoom button clicks
+        function setupZoomControls() {
+            // Zoom in button
+            zoomInBtn.addEventListener('click', () => {
+                svg.transition()
+                   .duration(300)
+                   .call(zoomBehavior.scaleBy, 1.3);
+            });
+            
+            // Zoom out button
+            zoomOutBtn.addEventListener('click', () => {
+                svg.transition()
+                   .duration(300)
+                   .call(zoomBehavior.scaleBy, 0.7);
+            });
+            
+            // Reset zoom button
+            zoomResetBtn.addEventListener('click', () => {
+                svg.transition()
+                   .duration(500)
+                   .call(zoomBehavior.transform, d3.zoomIdentity);
+            });
+        }
+        
+        // Fetch data from API
+        function fetchData() {
+            fetch('/api/data')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    connectionStatus.textContent = 'Status: Connected';
+                    connectionStatus.style.color = 'white';
+                    return response.json();
+                })
+                .then(data => {
+                    apData = data;
+                    updateVisualization(data);
+                    updateAPList(data);
+                    
+                    // Update status information
+                    lastUpdateElement.textContent = new Date().toLocaleTimeString();
+                    apCountElement.textContent = data.length;
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    connectionStatus.textContent = 'Status: Disconnected';
+                    connectionStatus.style.color = 'red';
+                });
+        }
+        
+        // Fetch and apply settings from API
+        function fetchSettings() {
+            fetch('/api/options')
+                .then(response => response.json())
+                .then(options => {
+                    // Apply settings to UI controls
+                    useBeaconsCheckbox.checked = options.use_beacons;
+                    useChannelsCheckbox.checked = options.use_channels;
+                    positionUpdateFactor.value = options.position_update_factor;
+                    positionUpdateFactorValue.textContent = options.position_update_factor;
+                    rssiThreshold.value = options.rssi_change_threshold;
+                    beaconThreshold.value = options.beacon_change_threshold;
+                })
+                .catch(error => {
+                    console.error('Error fetching settings:', error);
+                });
+        }
+        
+        // Save settings to API
+        function saveSettings() {
+            const options = {
+                use_beacons: useBeaconsCheckbox.checked,
+                use_channels: useChannelsCheckbox.checked,
+                position_update_factor: parseFloat(positionUpdateFactor.value),
+                rssi_change_threshold: parseInt(rssiThreshold.value),
+                beacon_change_threshold: parseInt(beaconThreshold.value)
+            };
+            
+            fetch('/api/options', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(options),
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Settings saved:', data);
+            })
+            .catch(error => {
+                console.error('Error saving settings:', error);
+            });
+        }
+        
+        // Setup event listeners for controls
+        function setupEventListeners() {
+            // Update settings when controls change
+            useBeaconsCheckbox.addEventListener('change', saveSettings);
+            useChannelsCheckbox.addEventListener('change', saveSettings);
+            
+            positionUpdateFactor.addEventListener('input', () => {
+                positionUpdateFactorValue.textContent = positionUpdateFactor.value;
+            });
+            
+            positionUpdateFactor.addEventListener('change', saveSettings);
+            rssiThreshold.addEventListener('change', saveSettings);
+            beaconThreshold.addEventListener('change', saveSettings);
+            
+            // Setup zoom controls
+            setupZoomControls();
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                updateVisualization(apData);
+            });
+        }
+        
+        // Initialize everything when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initVisualization();
+            fetchSettings();
+            fetchData();
+            setupEventListeners();
+            
+            // Set up periodic data refreshes
+            setInterval(fetchData, 1000);
+        });
+    </script>
+</body>
+</html>
