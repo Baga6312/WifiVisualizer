@@ -1,0 +1,8 @@
+
+BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key
+3A:C9:C8:A9:0D:F3, 2025-05-02 08:05:00, 2025-05-02 08:06:03,  6, 180, WPA2, CCMP, PSK, -64,       40,      152,   0.  0.  0.  0,  11, selmi firas, 
+84:9F:B5:C5:B8:7C, 2025-05-02 08:05:02, 2025-05-02 08:05:58, 11, 130, WPA2, CCMP, PSK, -70,       17,        0,   0.  0.  0.  0,  12, Ooredoo-B87C, 
+
+Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
+5C:61:99:03:68:95, 2025-05-02 08:05:00, 2025-05-02 08:06:03, -24,      378, 3A:C9:C8:A9:0D:F3,selmi firas
+

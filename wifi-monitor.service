@@ -1,0 +1,15 @@
+[Unit]
+Description=WiFi Monitoring Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/selmi/WifiVisualizer
+ExecStart=/bin/bash /home/selmi/WifiVisualizer/continuous_monitor.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
