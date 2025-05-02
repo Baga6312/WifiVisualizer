@@ -9,6 +9,9 @@ Type=simple
 User=selmi
 WorkingDirectory=/home/selmi/WifiVisualizer
 ExecStart=/usr/bin/python3 /home/selmi/WifiVisualizer/app.py /home/selmi/WifiVisualizer/live_clients-01.csv
+StandardOutput=append:/var/log/wifi-visualizer.log
+StandardError=append:/var/log/wifi-visualizer-error.log
+SyslogIdentifier=wifi-visualizer
 Restart=always
 RestartSec=10
 
