@@ -8,6 +8,9 @@ Type=simple
 User=root
 WorkingDirectory=/home/selmi/WifiVisualizer
 ExecStart=/bin/bash /home/selmi/WifiVisualizer/continuous_monitor.sh
+StandardOutput=append:/var/log/wifi-monitor.log
+StandardError=append:/var/log/wifi-monitor-error.log
+SyslogIdentifier=wifi-monitor
 Restart=always
 RestartSec=5
 
