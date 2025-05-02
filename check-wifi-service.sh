@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Log file
 LOG_FILE="/var/log/wifi-services-status.log"
 
 # Create log directory if it doesn't exist
