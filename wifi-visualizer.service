@@ -2,12 +2,13 @@
 Description=WiFi Visualizer Web Server
 After=network.target wifi-monitor.service
 Requires=wifi-monitor.service
+BindsTo=wifi-monitor.service
 
 [Service]
 Type=simple
-Users=selmi
+User=selmi
 WorkingDirectory=/home/selmi/WifiVisualizer
-ExecStart=/usr/bin/python3 /home/selmi/WifiVisualizer/app.py  /home/selmi/WifiVisualizer/live_clients-01.csv
+ExecStart=/usr/bin/python3 /home/selmi/WifiVisualizer/app.py /home/selmi/WifiVisualizer/live_clients-01.csv
 Restart=always
 RestartSec=10
 

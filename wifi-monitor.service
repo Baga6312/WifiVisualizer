@@ -1,6 +1,7 @@
 [Unit]
 Description=WiFi Monitoring Service
 After=network.target
+Before=wifi-visualizer.service
 
 [Service]
 Type=simple
@@ -12,4 +13,3 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-
