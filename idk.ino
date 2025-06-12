@@ -93,7 +93,7 @@ String cloneBSSID = "";
 // Real-time monitoring variables
 bool realTimeMonitorActive = false;
 unsigned long lastRealTimeUpdate = 0;
-const unsigned long REALTIME_UPDATE_INTERVAL = 2000;  // Update every 2 seconds
+const unsigned long REALTIME_UPDATE_INTERVAL = 700;  // Update every 2 seconds
 int currentChannel = 1;
 unsigned long lastChannelSwitch = 0;
 const unsigned long CHANNEL_SWITCH_INTERVAL = 200;  // Switch channels every 200ms
@@ -133,12 +133,13 @@ int adjustRssiByChannel(int rssi, int channel) {
   return rssi;
 }
 
+
 float calculateDistanceWithChannel(int rssi, int channel) {
   int adjustedRssi = adjustRssiByChannel(rssi, channel);
   float freq = channelToFrequency(channel);
 
-  float pathLoss = 3.0;
-  int measuredPower = -30;
+  float pathLoss = 3.0; // Adjust this value based on your environment
+  int measuredPower = -30; // Adjust this value based on your environment
 
   if (freq >= 5.7) pathLoss = 3.6;
   else if (freq >= 5.15) {
@@ -149,6 +150,67 @@ float calculateDistanceWithChannel(int rssi, int channel) {
 
   return rssiToDistance(adjustedRssi, measuredPower, pathLoss);
 }
+
+
+
+
+// Only one definition of clientPacketHandler
+void clientPacketHandler(void* buf, wifi_promiscuous_pkt_type_t type) {
+    if (clientCount >= 20) return; // Limit to 20 clients
+
+    wifi_promiscuous_pkt_t* pkt = (wifi_promiscuous_pkt_t*)buf;
+
+    // Check if this is a data frame or probe request
+    uint8_t frameType = pkt->payload[0] & 0xFC; // Get the frame type
+    if (frameType == 0x08 || frameType == 0x40) { // Data frames (0x08) or probe requests (0x40)
+        // Extract client MAC address (source address for frames from client)
+        uint8_t* clientMAC = &pkt->payload[10];
+
+        // Check if we already have this client
+        bool newClient = true;
+        for (int i = 0; i < clientCount; i++) {
+            bool macMatch = true;
+            for (int j = 0; j < 6; j++) {
+                if (clientMACs[i][j] != clientMAC[j]) {
+                    macMatch = false;
+                    break;
+                }
+            }
+            if (macMatch) {
+                newClient = false;
+                // Update RSSI for existing client
+                clientRSSI[i] = pkt->rx_ctrl.rssi; // Update the RSSI value
+                break;
+            }
+        }
+
+        if (newClient) {
+            // Add new client
+            memcpy(clientMACs[clientCount], clientMAC, 6); // Store the MAC address
+            clientRSSI[clientCount] = pkt->rx_ctrl.rssi; // Store the RSSI value
+
+            // Calculate estimated position relative to AP
+            float clientDistance = calculateDistanceWithChannel(clientRSSI[clientCount], channels[selectedAPIndex]);
+
+            // Random but consistent positioning around AP
+            uint32_t macHash = 0;
+            for (int i = 0; i < 6; i++) {
+                macHash = macHash * 31 + clientMAC[i];
+            }
+            float angle = (macHash % 628) / 100.0; // Calculate angle for positioning
+
+            // Store calculated positions
+            clientX[clientCount] = apX[selectedAPIndex] + clientDistance * cos(angle) * 0.3;
+            clientY[clientCount] = apY[selectedAPIndex] + clientDistance * sin(angle) * 0.3;
+
+            clientCount++; // Increment the client count
+        }
+    }
+}
+
+
+
+
 
 void initializePower() {
   // Initialize power management
@@ -216,7 +278,7 @@ void updateRealTimeDisplay() {
     
     if (newCount > 0) {
       // Update existing networks or add new ones
-      for (int i = 0; i < min(newCount, 50); i++) {
+      for (int i = 0; i < min(newCount, 30); i++) {  // Limit to 30 networks for faster processing
         String currentSSID = WiFi.SSID(i);
         String currentBSSID = WiFi.BSSIDstr(i);
         
@@ -232,7 +294,7 @@ void updateRealTimeDisplay() {
         int targetIndex = (existingIndex >= 0) ? existingIndex : networkCount;
         
         // Update or add AP data
-        if (targetIndex < 50) {
+        if (targetIndex < 30) {  // Adjusted limit
           networks[targetIndex] = currentSSID;
           rssiValues[targetIndex] = WiFi.RSSI(i);
           channels[targetIndex] = WiFi.channel(i);
@@ -257,7 +319,7 @@ void updateRealTimeDisplay() {
           apX[targetIndex] = distances[targetIndex] * cos(angle);
           apY[targetIndex] = distances[targetIndex] * sin(angle);
           
-          if (existingIndex < 0 && networkCount < 50) {
+          if (existingIndex < 0 && networkCount < 30) {  // Adjusted limit
             networkCount++;
           }
         }
@@ -268,6 +330,7 @@ void updateRealTimeDisplay() {
     displayRealTimeAPs();
   }
 }
+
 
 
 void showAPSelectionMenu() {
@@ -316,140 +379,170 @@ void showAPSelectionMenu() {
 }
 
 
+
 void updateSelectedAPMonitor() {
-  // Scan for clients connected to the selected AP
-  if (millis() - lastClientScan > 3000) {
-    scanForClients();
-    lastClientScan = millis();
-  }
-  
-  // Scan only the selected AP's channel for better performance
-  WiFi.scanNetworks(false, false, false, 300, channels[selectedAPIndex]);
-
-  // Find our target AP in the scan results
-  int foundIndex = -1;
-  String targetBSSID = "";
-  
-  // Get BSSID from stored data
-  char bssidStr[18];
-  sprintf(bssidStr, "%02X:%02X:%02X:%02X:%02X:%02X",
-          bssids[selectedAPIndex][0], bssids[selectedAPIndex][1], 
-          bssids[selectedAPIndex][2], bssids[selectedAPIndex][3],
-          bssids[selectedAPIndex][4], bssids[selectedAPIndex][5]);
-  targetBSSID = String(bssidStr);
-
-  int scanCount = WiFi.scanComplete();
-  if (scanCount > 0) {
-    for (int i = 0; i < scanCount; i++) {
-      if (WiFi.BSSIDstr(i) == targetBSSID) {
-        foundIndex = i;
-        // Update our stored data
-        rssiValues[selectedAPIndex] = WiFi.RSSI(i);
-        distances[selectedAPIndex] = calculateDistanceWithChannel(rssiValues[selectedAPIndex], channels[selectedAPIndex]);
-        break;
-      }
+    // Scan for clients connected to the selected AP
+    if (millis() - lastClientScan > 3000) {
+        scanForClients(); // Call the function to scan for clients
+        lastClientScan = millis();
     }
-  }
 
-  // Clear monitoring area
-  tft.fillRect(0, 25, 160, 85, ST77XX_BLACK);
+    // Scan only the selected AP's channel for better performance
+    WiFi.scanNetworks(false, false, false, 300, channels[selectedAPIndex]);
 
-  if (foundIndex >= 0) {
-    tft.setTextColor(ST77XX_GREEN);
-    tft.setCursor(0, 25);
-    tft.println("AP FOUND - MONITORING");
+    // Find our target AP in the scan results
+    int foundIndex = -1;
+    String targetBSSID = "";
 
-    tft.setTextColor(ST77XX_WHITE);
-    tft.setCursor(0, 35);
-    tft.print("RSSI: ");
-    tft.print(rssiValues[selectedAPIndex]);
-    tft.println(" dBm");
+    // Get BSSID from stored data
+    char bssidStr[18];
+    sprintf(bssidStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+            bssids[selectedAPIndex][0], bssids[selectedAPIndex][1], 
+            bssids[selectedAPIndex][2], bssids[selectedAPIndex][3],
+            bssids[selectedAPIndex][4], bssids[selectedAPIndex][5]);
+    targetBSSID = String(bssidStr);
 
-    tft.setCursor(0, 45);
-    tft.print("Distance: ");
-    tft.print(distances[selectedAPIndex], 1);
-    tft.println(" m");
+    int scanCount = WiFi.scanComplete();
+    if (scanCount > 0) {
+        for (int i = 0; i < scanCount; i++) {
+            if (WiFi.BSSIDstr(i) == targetBSSID) {
+                foundIndex = i;
+                // Update our stored data
+                rssiValues[selectedAPIndex] = WiFi.RSSI(i);
+                distances[selectedAPIndex] = calculateDistanceWithChannel(rssiValues[selectedAPIndex], channels[selectedAPIndex]);
+                break;
+            }
+        }
+    }
 
-    tft.setCursor(0, 55);
-    tft.print("Channel: ");
-    tft.println(channels[selectedAPIndex]);
+    // Clear monitoring area
+    tft.fillRect(0, 25, 160, 85, ST77XX_BLACK);
 
-    // Signal strength bar
-    int barWidth = map(constrain(rssiValues[selectedAPIndex], -100, -30), -100, -30, 0, 100);
-    tft.fillRect(0, 65, barWidth, 6, ST77XX_GREEN);
-    tft.drawRect(0, 65, 100, 6, ST77XX_WHITE);
+    if (foundIndex >= 0) {
+        tft.setTextColor(ST77XX_GREEN);
+        tft.setCursor(0, 25);
+        tft.println("AP FOUND - MONITORING");
 
-    // Client information
-    tft.setTextColor(ST77XX_CYAN);
-    tft.setCursor(0, 75);
-    tft.print("Clients: ");
-    tft.println(clientCount);
+        tft.setTextColor(ST77XX_WHITE);
+        tft.setCursor(0, 35);
+        tft.print("RSSI: ");
+        tft.print(rssiValues[selectedAPIndex]);
+        tft.println(" dBm");
 
-    // Signal quality indicator
-    if (rssiValues[selectedAPIndex] > -50) {
-      tft.setTextColor(ST77XX_GREEN);
-      tft.setCursor(0, 85);
-      tft.println("Signal: EXCELLENT");
-    } else if (rssiValues[selectedAPIndex] > -70) {
-      tft.setTextColor(ST77XX_YELLOW);
-      tft.setCursor(0, 85);
-      tft.println("Signal: GOOD");
-    } else if (rssiValues[selectedAPIndex] > -85) {
-      tft.setTextColor(ST77XX_ORANGE);
-      tft.setCursor(0, 85);
-      tft.println("Signal: FAIR");
+        tft.setCursor(0, 45);
+        tft.print("Distance: ");
+        tft.print(distances[selectedAPIndex], 1);
+        tft.println(" m");
+
+        tft.setCursor(0, 55);
+        tft.print("Channel: ");
+        tft.println(channels[selectedAPIndex]);
+
+        // Signal strength bar
+        int barWidth = map(constrain(rssiValues[selectedAPIndex], -100, -30), -100, -30, 0, 100);
+        tft.fillRect(0, 65, barWidth, 6, ST77XX_GREEN);
+        tft.drawRect(0, 65, 100, 6, ST77XX_WHITE);
+
+        // Client information
+        tft.setTextColor(ST77XX_CYAN);
+        tft.setCursor(0, 75);
+        tft.print("Clients: ");
+        tft.println(clientCount);
+
+        // Signal quality indicator
+        if (rssiValues[selectedAPIndex] > -50) {
+            tft.setTextColor(ST77XX_GREEN);
+            tft.setCursor(0, 85);
+            tft.println("Signal: EXCELLENT");
+        } else if (rssiValues[selectedAPIndex] > -70) {
+            tft.setTextColor(ST77XX_YELLOW);
+            tft.setCursor(0, 85);
+            tft.println("Signal: GOOD");
+        } else if (rssiValues[selectedAPIndex] > -85) {
+            tft.setTextColor(ST77XX_ORANGE);
+            tft.setCursor(0, 85);
+            tft.println("Signal: FAIR");
+        } else {
+            tft.setTextColor(ST77XX_RED);
+            tft.setCursor(0, 85);
+            tft.println("Signal: POOR");
+        }
+
+        // Start client monitoring
+        esp_wifi_set_promiscuous(true); // Enable promiscuous mode
+        esp_wifi_set_channel(channels[selectedAPIndex], WIFI_SECOND_CHAN_NONE);
+        esp_wifi_set_promiscuous_rx_cb(clientPacketHandler); // Set the packet handler
+
     } else {
-      tft.setTextColor(ST77XX_RED);
-      tft.setCursor(0, 85);
-      tft.println("Signal: POOR");
+        tft.setTextColor(ST77XX_RED);
+        tft.setCursor(0, 25);
+        tft.println("AP NOT FOUND");
+        tft.setCursor(0, 35);
+        tft.println("May be out of range");
+        tft.setCursor(0, 45);
+        tft.println("or turned off");
+
+        tft.setTextColor(ST77XX_YELLOW);
+        tft.setCursor(0, 55);
+        tft.println("Clients: N/A");
     }
 
-  } else {
-    tft.setTextColor(ST77XX_RED);
-    tft.setCursor(0, 25);
-    tft.println("AP NOT FOUND");
-    tft.setCursor(0, 35);
-    tft.println("May be out of range");
-    tft.setCursor(0, 45);
-    tft.println("or turned off");
-    
+    // Add client visualization if clients are detected
+    displayClientMap();
+
     tft.setTextColor(ST77XX_YELLOW);
-    tft.setCursor(0, 55);
-    tft.println("Clients: N/A");
-  }
-
-  // Add client visualization if clients are detected
-  displayClientMap();
-
-  tft.setTextColor(ST77XX_YELLOW);
-  tft.setCursor(0, 118);
-  tft.println("LONG=back to menu");
+    tft.setCursor(0, 118);
+    tft.println("LONG=back to menu");
 }
 
 
 void scanForClients() {
-  if (selectedAPIndex < 0 || selectedAPIndex >= networkCount) return;
+    // Set WiFi to promiscuous mode to detect client frames
+    WiFi.mode(WIFI_MODE_STA); // Set the WiFi mode to Station
+    esp_wifi_set_promiscuous(true); // Enable promiscuous mode
+    esp_wifi_set_channel(channels[selectedAPIndex], WIFI_SECOND_CHAN_NONE); // Set the channel to the selected AP
+    esp_wifi_set_promiscuous_rx_cb(clientPacketHandler); // Set the packet handler
 
-  // Set WiFi to promiscuous mode to detect client frames
-  WiFi.mode(WIFI_MODE_STA);
-  esp_wifi_set_promiscuous(true);
-  esp_wifi_set_channel(channels[selectedAPIndex], WIFI_SECOND_CHAN_NONE);
-  esp_wifi_set_promiscuous_rx_cb(clientPacketHandler);
+    // Reset client count for fresh scan
+    clientCount = 0;
 
-  // Reset client count for fresh scan
-  clientCount = 0;
+    // Listen for client frames for a specified duration
+    unsigned long scanStart = millis();
+    while (millis() - scanStart < 20000) { // Listen for 20 seconds
+        delay(100); // Allow packet handler to work
+    }
 
-  // Listen for client frames for 2 seconds
-  unsigned long scanStart = millis();
-  while (millis() - scanStart < 2000) {
-    delay(100); // Allow packet handler to work
-  }
+    esp_wifi_set_promiscuous(false); // Stop promiscuous mode after scanning
 
-  esp_wifi_set_promiscuous(false);
+    // Update the client display after scanning
+    updateClientDisplay(); // Call to display the detected clients
 }
 
 
 
+void updateClientDisplay() {
+    fastScreenClear(); // Clear the screen
+    tft.setTextColor(ST77XX_CYAN);
+    tft.setCursor(0, 0);
+    tft.println("=== CLIENTS MONITOR ===");
+    
+    // Display each detected client
+    for (int i = 0; i < clientCount; i++) {
+        char macStr[18];
+        sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+                clientMACs[i][0], clientMACs[i][1], clientMACs[i][2],
+                clientMACs[i][3], clientMACs[i][4], clientMACs[i][5]);
+        
+        tft.setCursor(0, 20 + i * 10); // Position for each client
+        tft.print(macStr); // Print MAC address
+        tft.print(" | RSSI: ");
+        tft.print(clientRSSI[i]); // Print RSSI value
+    }
+
+    tft.setTextColor(ST77XX_YELLOW);
+    tft.setCursor(0, 120);
+    tft.println("LONG=back");
+}
 
 
 
@@ -458,31 +551,26 @@ void scanForClients() {
 
 
 void displayClientMap() {
-  if (clientCount == 0) return;
+    // Clear the map area
+    tft.fillRect(0, 130, 160, 90, ST77XX_BLACK); // Adjust the area as needed
 
-  // Small client visualization area (bottom right corner)
-  tft.drawRect(110, 85, 48, 30, ST77XX_CYAN);
-  tft.setTextColor(ST77XX_CYAN);
-  tft.setCursor(112, 87);
-  tft.println("Client Map");
+    // Draw the AP position
+    tft.setTextColor(ST77XX_GREEN);
+    tft.fillCircle(apX[selectedAPIndex], apY[selectedAPIndex], 5, ST77XX_GREEN); // Draw AP as a green circle
+    tft.setCursor(apX[selectedAPIndex] + 10, apY[selectedAPIndex] - 5);
+    tft.print("AP");
 
-  // Center point (AP position)
-  int centerX = 134;
-  int centerY = 100;
-  tft.fillCircle(centerX, centerY, 2, ST77XX_GREEN);
-
-  // Plot clients around AP
-  for (int i = 0; i < min(clientCount, 8); i++) {
-    int clientPlotX = centerX + (int)((clientX[i] - apX[selectedAPIndex]) * 10);
-    int clientPlotY = centerY + (int)((clientY[i] - apY[selectedAPIndex]) * 10);
-
-    clientPlotX = constrain(clientPlotX, 112, 156);
-    clientPlotY = constrain(clientPlotY, 89, 113);
-
-    // Color by signal strength
-    uint16_t color = (clientRSSI[i] > -60) ? ST77XX_YELLOW : ST77XX_RED;
-    tft.fillCircle(clientPlotX, clientPlotY, 1, color);
-  }
+    // Draw each client
+    for (int i = 0; i < clientCount; i++) {
+        tft.setTextColor(ST77XX_CYAN);
+        tft.fillCircle(clientX[i], clientY[i], 3, ST77XX_CYAN); // Draw client as a cyan circle
+        tft.setCursor(clientX[i] + 5, clientY[i] - 5);
+        char macStr[18];
+        sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+                clientMACs[i][0], clientMACs[i][1], clientMACs[i][2],
+                clientMACs[i][3], clientMACs[i][4], clientMACs[i][5]);
+        tft.print(macStr); // Print MAC address next to the client
+    }
 }
 
 
@@ -496,70 +584,6 @@ void displayClientMap() {
 
 
 
-
-void clientPacketHandler(void* buf, wifi_promiscuous_pkt_type_t type) {
-  if (selectedAPIndex < 0 || clientCount >= 20) return;
-  
-  wifi_promiscuous_pkt_t* pkt = (wifi_promiscuous_pkt_t*)buf;
-  
-  // Check if this is a data frame from/to our target AP
-  uint8_t frameType = pkt->payload[0] & 0xFC;
-  if (frameType == 0x08 || frameType == 0x88) { // Data frames
-    
-    // Check if BSSID matches our target AP
-    bool bssidMatch = true;
-    for (int i = 0; i < 6; i++) {
-      if (pkt->payload[16 + i] != bssids[selectedAPIndex][i]) {
-        bssidMatch = false;
-        break;
-      }
-    }
-    
-    if (bssidMatch && clientCount < 20) {
-      // Extract client MAC (source address for frames from client)
-      uint8_t* clientMAC = &pkt->payload[10];
-      
-      // Check if we already have this client
-      bool newClient = true;
-      for (int i = 0; i < clientCount; i++) {
-        bool macMatch = true;
-        for (int j = 0; j < 6; j++) {
-          if (clientMACs[i][j] != clientMAC[j]) {
-            macMatch = false;
-            break;
-          }
-        }
-        if (macMatch) {
-          newClient = false;
-          // Update RSSI for existing client
-          clientRSSI[i] = pkt->rx_ctrl.rssi;
-          break;
-        }
-      }
-      
-      if (newClient) {
-        // Add new client
-        memcpy(clientMACs[clientCount], clientMAC, 6);
-        clientRSSI[clientCount] = pkt->rx_ctrl.rssi;
-        
-        // Calculate estimated position relative to AP
-        float clientDistance = calculateDistanceWithChannel(clientRSSI[clientCount], channels[selectedAPIndex]);
-        
-        // Random but consistent positioning around AP
-        uint32_t macHash = 0;
-        for (int i = 0; i < 6; i++) {
-          macHash = macHash * 31 + clientMAC[i];
-        }
-        float angle = (macHash % 628) / 100.0;
-        
-        clientX[clientCount] = apX[selectedAPIndex] + clientDistance * cos(angle) * 0.3;
-        clientY[clientCount] = apY[selectedAPIndex] + clientDistance * sin(angle) * 0.3;
-        
-        clientCount++;
-      }
-    }
-  }
-}
 
 
 
@@ -591,60 +615,69 @@ void startAPMonitoring() {
 
 
 
+
+
+
 void displayRealTimeAPs() {
-  fastScreenClear();
-  tft.setTextColor(ST77XX_CYAN);
-  tft.setCursor(0, 0);
-  tft.println("REAL-TIME AP MONITOR");
-  
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setCursor(0, 10);
-  tft.print("APs: ");
-  tft.print(networkCount);
-  tft.print(" | Ch: ");
-  tft.println(currentChannel);
-  
-  // Show live 2D map
-  tft.drawLine(80, 25, 80, 100, ST77XX_WHITE);  // Y axis
-  tft.drawLine(20, 62, 140, 62, ST77XX_WHITE);  // X axis
-  
-  // Draw range circles
-  for (int r = 10; r <= 30; r += 10) {
-    tft.drawCircle(80, 62, r, ST77XX_WHITE);
-  }
-  
-  // Plot all APs
-  for (int i = 0; i < networkCount; i++) {
-    int plotX = 80 + (int)(apX[i] * 1.5);
-    int plotY = 62 + (int)(apY[i] * 1.5);
+    fastScreenClear();
+    tft.setTextColor(ST77XX_CYAN);
+    tft.setCursor(0, 0);
+    tft.println("REAL-TIME AP MONITOR");
     
-    plotX = constrain(plotX, 25, 135);
-    plotY = constrain(plotY, 30, 95);
+    tft.setTextColor(ST77XX_WHITE);
+    tft.setCursor(0, 10);
+    tft.print("APs: ");
+    tft.print(networkCount);
+    tft.print(" | Ch: ");
+    tft.println(currentChannel);
     
-    // Color by signal strength and age
-    uint16_t color;
-    if (rssiValues[i] > -50) color = ST77XX_GREEN;
-    else if (rssiValues[i] > -70) color = ST77XX_YELLOW;
-    else color = ST77XX_RED;
+    // Show live 2D map
+    tft.drawLine(80, 25, 80, 100, ST77XX_WHITE);  // Y axis
+    tft.drawLine(20, 62, 140, 62, ST77XX_WHITE);  // X axis
     
-    tft.fillCircle(plotX, plotY, 2, color);
-    
-    // Show closest AP info
-    if (distances[i] < 15 && networks[i].length() > 0) {
-      tft.setTextColor(color);
-      tft.setCursor(plotX + 3, plotY - 3);
-      String shortName = networks[i].substring(0, min(3, (int)networks[i].length()));
-      tft.print(shortName);
+    // Draw range circles based on the desired maximum distance
+    float maxDisplayDistance = 30.0; // Set the maximum distance you want to visualize
+    for (int r = 10; r <= maxDisplayDistance; r += 10) {
+        tft.drawCircle(80, 62, r * 2, ST77XX_WHITE); // Scale the radius for better visibility
     }
-  }
-  
-  // Center point (our position)
-  tft.fillCircle(80, 62, 3, ST77XX_CYAN);
-  
-  tft.setTextColor(ST77XX_YELLOW);
-  tft.setCursor(0, 110);
-  tft.println("LIVE | LONG=back");
+    
+    // Plot all APs
+    for (int i = 0; i < networkCount; i++) {
+        int plotX = 80 + (int)(apX[i] * 2); // Scale the X position
+        int plotY = 62 + (int)(apY[i] * 2); // Scale the Y position
+        
+        plotX = constrain(plotX, 25, 135);
+        plotY = constrain(plotY, 30, 95);
+        
+        // Color by signal strength and age
+        uint16_t color;
+        if (rssiValues[i] > -50) color = ST77XX_GREEN;
+        else if (rssiValues[i] > -70) color = ST77XX_YELLOW;
+        else color = ST77XX_RED;
+        
+        tft.fillCircle(plotX, plotY, 2, color);
+        
+        // Show closest AP info
+        if (distances[i] < 15 && networks[i].length() > 0) {
+            tft.setTextColor(color);
+            tft.setCursor(plotX + 3, plotY - 3);
+            String shortName = networks[i].substring(0, min(3, (int)networks[i].length()));
+            tft.print(shortName);
+        }
+    }
+    
+    // Center point (our position)
+    tft.fillCircle(80, 62, 3, ST77XX_CYAN);
+    
+    tft.setTextColor(ST77XX_YELLOW);
+    tft.setCursor(0, 110);
+    tft.println("LIVE | LONG=back");
 }
+
+
+
+
+
 
 
 void setup() {
@@ -1102,6 +1135,9 @@ void executeMenuItem() {
       break;
   }
 }
+
+
+
 void showApVisualizer() {
   if (networkCount == 0) {
     fastScreenClear();
@@ -1159,6 +1195,13 @@ void showApVisualizer() {
   tft.setCursor(0, 118);
   tft.println("SHORT=mode LONG=back");
 }
+
+
+
+
+
+
+
 void showDistanceList() {
   tft.setTextColor(ST77XX_WHITE);
   tft.setCursor(0, 15);
@@ -1353,6 +1396,9 @@ void fastScreenClear() {
 }
 
 
+
+
+
 void wifiScanner() {
   // Check battery before power-hungry operation
   if (batteryVoltage > 0 && batteryVoltage < 3.5) {
@@ -1374,7 +1420,7 @@ void wifiScanner() {
   // Reduce WiFi TX power to save battery
   esp_wifi_set_max_tx_power(44);  // Reduce from default 78
 
-  networkCount = WiFi.scanNetworks();
+  networkCount = WiFi.scanNetworks(); // Ensure this captures all networks
 
   if (networkCount == 0) {
     fastScreenClear();
@@ -1444,6 +1490,11 @@ void wifiScanner() {
   tft.setCursor(0, 118);
   tft.println("LONG=back");
 }
+
+
+
+
+
 
 void deauthMenu() {
   if (networkCount == 0) {
