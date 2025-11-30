@@ -12,7 +12,6 @@ import logging
 def rssi_to_distance(rssi, measured_power=-30, path_loss_exponent=3.0):
     if rssi >= measured_power:
         return 1.0  
-    
     return 10 ** ((measured_power - rssi) / (10 * path_loss_exponent))
 
 def channel_to_frequency(channel):
@@ -36,13 +35,9 @@ def channel_to_frequency(channel):
         elif channel >= 32:
             return 5.0 + (channel - 32) * 0.005  
         else:
-            return 2.4  # Default
+            return 2.4
 
 def adjust_rssi_by_channel(rssi, channel):
-    """
-    Adjust RSSI based on channel frequency with improved accuracy
-    Higher frequencies (5GHz) attenuate more than 2.4GHz
-    """
     freq = channel_to_frequency(channel)
     
     if freq >= 5.7:  
@@ -60,7 +55,6 @@ def adjust_rssi_by_channel(rssi, channel):
 
 def calculate_distance_with_channel(rssi, channel):
     adjusted_rssi = adjust_rssi_by_channel(rssi, channel)
-    
     freq = channel_to_frequency(channel)
     
     if freq >= 5.7:  
@@ -81,23 +75,6 @@ def calculate_distance_with_channel(rssi, channel):
         
     return rssi_to_distance(adjusted_rssi, measured_power=measured_power, path_loss_exponent=path_loss)
 
-def beacons_to_distance(beacon_count, max_beacons=1000, min_beacons=10):
-    if beacon_count <= 0:
-        return 50  
-    
-    normalized_beacons = min(max_beacons, max(min_beacons, beacon_count))
-    log_scale = math.log(normalized_beacons) / math.log(max_beacons)
-    
-    return max(1, 40 * (1 - log_scale ** 0.7))
-
-def calculate_xy_position(distance, angle=None):
-    if angle is None:
-        angle = np.random.uniform(0, 2 * np.pi)  
-    return (
-        distance * np.cos(angle),  
-        distance * np.sin(angle)   
-    )
-
 def get_rssi_color(rssi):
     if rssi >= -50:  
         return 'green'
@@ -113,14 +90,13 @@ def parse_aps(filename):
     try:
         with open(filename, 'r') as f:
             content = f.read()
-            
             lines = content.split('\n')
             header_line = None
             
             for i, line in enumerate(lines):
                 if "BSSID" in line and "Power" in line:
                     header_line = i
-                    logging.debug(f"Found header line at index {i}: {line}")
+                    logging.debug(f"Found header line at index {i}")
                     break
             
             if header_line is not None:
@@ -134,7 +110,6 @@ def parse_aps(filename):
                     if len(fields) >= 9:  
                         try:
                             bssid = fields[0].strip()
-                            
                             channel_str = fields[3].strip() if len(fields) > 3 else "0"
                             try:
                                 channel = int(channel_str) if channel_str.isdigit() else 0
@@ -142,7 +117,6 @@ def parse_aps(filename):
                                 channel = 0
                             
                             power_str = fields[8].strip()
-                            
                             try:
                                 rssi = int(power_str) if power_str.lstrip('-').isdigit() else -100
                             except ValueError:
@@ -158,11 +132,11 @@ def parse_aps(filename):
                             
                             if bssid and bssid != "BSSID":  
                                 aps.append((bssid, rssi, essid, beacons, channel))
-                                logging.debug(f"Added AP: BSSID={bssid}, RSSI={rssi}, ESSID={essid}, Beacons={beacons}, Channel={channel}")
+                                logging.debug(f"Added AP: BSSID={bssid}, RSSI={rssi}, ESSID={essid}")
                         except Exception as e:
                             logging.debug(f"Error processing line: {e}")
             else:
-                logging.debug("Could not find header line with BSSID")
+                logging.warning("Could not find header line with BSSID")
     except Exception as e:
         logging.error(f"Error reading file: {e}")
     
@@ -172,103 +146,108 @@ def parse_aps(filename):
             unique_aps[bssid] = (rssi, essid, beacons, channel)
     
     result = [(bssid, rssi, essid, beacons, channel) for bssid, (rssi, essid, beacons, channel) in unique_aps.items()]
-    logging.debug(f"Returned {len(result)} unique APs")
-    
-    if not result:
-        logging.error(f"No APs found in file: {filename}")
+    logging.info(f"✓ Parsed {len(result)} unique APs")
     
     return result
 
-
-
 def parse_clients(ap_bssid):
-    """Parse client CSV file for a specific AP"""
+    """Parse client CSV file for a specific AP with detailed logging"""
     clients = []
-
-    # Look for client CSV file for this AP
-    client_dir = "ap_clients"
+    client_dir = "scripts/ap_clients"
+    
+    logging.info(f"🔍 Looking for clients for AP: {ap_bssid}")
+    
     if not os.path.exists(client_dir):
+        logging.warning(f"❌ Client directory '{client_dir}' does not exist!")
         return clients
-
-    # Find client file for this AP (matches any filename with the BSSID)
-    for filename in os.listdir(client_dir):
-        if filename.startswith(ap_bssid.replace(':', '')) or filename.startswith(ap_bssid):
-            filepath = os.path.join(client_dir, filename)
-
-            try:
-                with open(filepath, 'r') as f:
-                    content = f.read()
-                    lines = content.split('\n')
-
-                    # Find "Station MAC" header
-                    header_line = None
-                    for i, line in enumerate(lines):
-                        if "Station MAC" in line:
-                            header_line = i
-                            break
-
-                    if header_line is not None:
-                        # Parse client lines
-                        for line_index in range(header_line + 1, len(lines)):
-                            line = lines[line_index].strip()
-                            if not line:
-                                break
-
-                            fields = [field.strip() for field in line.split(',')]
-
-                            if len(fields) >= 4:
-                                try:
-                                    client_mac = fields[0].strip()
-                                    power_str = fields[3].strip()
-
-                                    try:
-                                        client_rssi = int(power_str) if power_str.lstrip('-').isdigit() else -100
-                                    except ValueError:
-                                        client_rssi = -100
-
-                                    if client_mac and client_mac != "Station MAC":
-                                        clients.append((client_mac, client_rssi))
-                                except Exception as e:
-                                    logging.debug(f"Error processing client line: {e}")
-            except Exception as e:
-                logging.error(f"Error reading client file: {e}")
-
-            break  # Found the file, no need to continue
-
-    return clients
-
-
-
-
-
-def generate_test_data(num_aps=5):
-    """Generate test data for demonstration when no real data is available"""
-    aps = []
-    essids = ["HomeWiFi", "Office_Network", "Guest5G", "IoT_Network", "SecurityCam", 
-             "Neighbor1", "Neighbor2", "CoffeeShop", "FreeWiFi", "Hidden"]
     
-    for i in range(num_aps):
-        mac_parts = [format(np.random.randint(0, 255), '02x') for _ in range(6)]
-        bssid = ':'.join(mac_parts).upper()
-        
-        rssi = -30 - np.random.randint(0, 60)
-        
-        essid = essids[i % len(essids)]
-        if i >= len(essids):
-            essid += "_" + str(i // len(essids))
+    # List all files in directory for debugging
+    all_files = os.listdir(client_dir)
+    logging.debug(f"📂 Files in {client_dir}: {all_files}")
+    
+    # Try multiple BSSID formats
+    bssid_formats = [
+        ap_bssid,                          # AA:BB:CC:DD:EE:FF
+        ap_bssid.replace(':', ''),         # AABBCCDDEEFF
+        ap_bssid.replace(':', '-'),        # AA-BB-CC-DD-EE-FF
+        ap_bssid.lower(),                  # aa:bb:cc:dd:ee:ff
+        ap_bssid.upper(),                  # AA:BB:CC:DD:EE:FF
+    ]
+    
+    found_file = None
+    for filename in all_files:
+        if not filename.endswith('_clients.csv'):
+            continue
             
-        beacons = np.random.randint(10, 1000)
-        
-        if np.random.random() < 0.6:  
-            channel = np.random.randint(1, 14)
-        else:  
-            channels_5g = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 
-                          120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165]
-            channel = channels_5g[np.random.randint(0, len(channels_5g))]
-        
-        aps.append((bssid, rssi, essid, beacons, channel))
+        for bssid_format in bssid_formats:
+            if bssid_format in filename or bssid_format.replace(':', '') in filename:
+                found_file = filename
+                break
+        if found_file:
+            break
     
-    return aps
+    if not found_file:
+        logging.warning(f"❌ No client file found for AP {ap_bssid}")
+        logging.debug(f"   Tried formats: {bssid_formats}")
+        return clients
+    
+    filepath = os.path.join(client_dir, found_file)
+    logging.info(f"✓ Found client file: {found_file}")
+    
+    try:
+        with open(filepath, 'r') as f:
+            content = f.read()
+            
+            if not content.strip():
+                logging.warning(f"⚠️ Client file is empty: {found_file}")
+                return clients
+            
+            logging.debug(f"📄 File content preview (first 200 chars): {content[:200]}")
+            lines = content.split('\n')
+            
+            # Find "Station MAC" header
+            header_line = None
+            for i, line in enumerate(lines):
+                if "Station MAC" in line:
+                    header_line = i
+                    logging.info(f"✓ Found 'Station MAC' header at line {i}")
+                    break
+            
+            if header_line is None:
+                logging.warning(f"❌ No 'Station MAC' header found in {found_file}")
+                return clients
+            
+            # Parse client lines
+            client_count = 0
+            for line_index in range(header_line + 1, len(lines)):
+                line = lines[line_index].strip()
+                if not line:
+                    break
+                
+                fields = [field.strip() for field in line.split(',')]
+                
+                if len(fields) >= 4:
+                    try:
+                        client_mac = fields[0].strip()
+                        power_str = fields[3].strip()
+                        
+                        try:
+                            client_rssi = int(power_str) if power_str.lstrip('-').isdigit() else -100
+                        except ValueError:
+                            client_rssi = -100
+                        
+                        # Validate MAC address format
+                        if client_mac and ':' in client_mac and len(client_mac) == 17:
+                            clients.append((client_mac, client_rssi))
+                            client_count += 1
+                            logging.debug(f"   ✓ Client #{client_count}: {client_mac} @ {client_rssi} dBm")
+                    except Exception as e:
+                        logging.debug(f"   ⚠️ Error processing client line: {e}")
+    except Exception as e:
+        logging.error(f"❌ Error reading client file {found_file}: {e}")
+    
+    logging.info(f"📊 Total clients found for {ap_bssid}: {len(clients)}")
+    return clients
 
 class WiFiDataProcessor:
     def __init__(self, input_file=None, use_test_data=False, use_beacons=False, use_channels=True):
@@ -284,80 +263,57 @@ class WiFiDataProcessor:
         self.ap_history = defaultdict(lambda: {'rssi': [], 'beacons': []})
         self.lock = threading.Lock()  
         
-        logging.basicConfig(level=logging.DEBUG if os.environ.get('DEBUG') else logging.INFO,
-                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        # Setup logging
+        log_level = logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
         
         if not self.input_file and not self.use_test_data:
-            self.input_file = 'live_clients-01.csv'  
-            logging.info(f"No input file specified, using default: {self.input_file}")
+            self.input_file = 'live_aps_aps_only.csv'  
+            logging.info(f"Using default AP file: {self.input_file}")
             
             if not os.path.exists(self.input_file):
-                logging.warning(f"Default file {self.input_file} not found. Create a minimal file.")
-                with open(self.input_file, 'w') as f:
-                    f.write("BSSID, First time seen, Last time seen, Channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key\n")
+                logging.warning(f"Default file {self.input_file} not found")
         
-    def detect_trend(self, history):
-        """Detect if a value is trending up, down, or stable based on history"""
-        if len(history) < 2:
-            return 'stable'
-        
-        diffs = [history[i] - history[i-1] for i in range(1, len(history))]
-        
-        increasing = sum(1 for d in diffs if d > 0)
-        decreasing = sum(1 for d in diffs if d < 0)
-        
-        if increasing > decreasing and increasing >= len(diffs) / 2:
-            return 'increasing'
-        elif decreasing > increasing and decreasing >= len(diffs) / 2:
-            return 'decreasing'
-        else:
-            return 'stable'
+        logging.info("=" * 60)
+        logging.info("🚀 WiFi Visualizer Started")
+        logging.info(f"   AP File: {self.input_file}")
+        logging.info(f"   Client Directory: ap_clients/")
+        logging.info("=" * 60)
     
     def update_data(self):
-        """Update AP data from file or generate test data"""
+        """Update AP data from file"""
         try:
-            if self.use_test_data:
-                aps = generate_test_data(num_aps=8)
-                logging.debug("Generated test data")
-            else:
-                if not os.path.exists(self.input_file):
-                    logging.error(f"Input file {self.input_file} does not exist!")
-                    aps = generate_test_data(num_aps=8)
-                    logging.debug("Input file not found, using generated test data")
-                else:
-                    aps = parse_aps(self.input_file)
-                    logging.debug(f"Read {len(aps)} APs from {self.input_file}")
-                    
-                    if not aps:
-                        aps = generate_test_data(num_aps=8)
-                        logging.debug("No APs found in file, using generated test data")
+            if not os.path.exists(self.input_file):
+                logging.error(f"❌ Input file {self.input_file} does not exist!")
+                return
+            
+            aps = parse_aps(self.input_file)
+            
+            if not aps:
+                logging.warning("⚠️ No APs found in file")
+                return
             
             active_bssids = set()
             
             for bssid, rssi, essid, beacons, channel in aps:
                 active_bssids.add(bssid)
                 
-                with self.lock:  
-                    if len(self.ap_history[bssid]['rssi']) >= self.history_len:
-                        self.ap_history[bssid]['rssi'].pop(0)
-                        self.ap_history[bssid]['beacons'].pop(0)
-                    self.ap_history[bssid]['rssi'].append(rssi)
-                    self.ap_history[bssid]['beacons'].append(beacons)
-                    
-                    rssi_trend = self.detect_trend(self.ap_history[bssid]['rssi'])
-                    beacon_trend = self.detect_trend(self.ap_history[bssid]['beacons'])
-                    
-                    if self.use_beacons:
-                        distance = beacons_to_distance(beacons)
+                with self.lock:
+                    if self.use_channels:
+                        distance = calculate_distance_with_channel(rssi, channel)
                     else:
-                        if self.use_channels:
-                            distance = calculate_distance_with_channel(rssi, channel)
-                        else:
-                            distance = rssi_to_distance(rssi)
+                        distance = rssi_to_distance(rssi)
                     
                     if bssid not in self.ap_data:
-                        angle = np.random.uniform(0, 2 * np.pi)
-                        new_x, new_y = calculate_xy_position(distance, angle)
+                        # Hash BSSID for consistent angle
+                        mac_hash = sum(ord(c) for c in bssid) * 31
+                        angle = (mac_hash % 628) / 100.0
+                        
+                        new_x = distance * np.cos(angle)
+                        new_y = distance * np.sin(angle)
                         
                         self.ap_data[bssid] = {
                             'x': new_x,
@@ -371,47 +327,9 @@ class WiFiDataProcessor:
                             'color': get_rssi_color(rssi),
                             'distance': distance
                         }
+                        logging.debug(f"📍 New AP: {essid or 'Hidden'} @ ({new_x:.1f}, {new_y:.1f})")
                     else:
-                        ap_info = self.ap_data[bssid]
-                        old_x, old_y = ap_info['x'], ap_info['y']
-                        old_rssi = ap_info['rssi']
-                        old_beacons = ap_info['beacons']
-                        
-                        should_update = False
-                        
-                        if self.use_beacons:
-                            beacon_diff = abs(beacons - old_beacons)
-                            if beacon_diff >= self.beacon_change_threshold:
-                                should_update = True
-                        else:
-                            rssi_diff = abs(rssi - old_rssi)
-                            if rssi_diff >= self.rssi_change_threshold:
-                                should_update = True
-                        
-                        if should_update:
-                            angle = ap_info['angle']
-                            new_x, new_y = calculate_xy_position(distance, angle)
-                            
-                            weight = self.position_update_factor
-                            
-                            if self.use_beacons:
-                                if beacon_trend == 'increasing' and beacons > old_beacons:
-                                    weight = min(1.0, weight * 1.2)
-                                elif beacon_trend == 'decreasing' and beacons < old_beacons:
-                                    weight = min(1.0, weight * 1.2)
-                            else:
-                                if rssi_trend == 'increasing' and rssi > old_rssi:
-                                    weight = min(1.0, weight * 1.2)
-                                elif rssi_trend == 'decreasing' and rssi < old_rssi:
-                                    weight = min(1.0, weight * 1.2)
-                            
-                            weighted_x = old_x * (1 - weight) + new_x * weight
-                            weighted_y = old_y * (1 - weight) + new_y * weight
-                            
-                            self.ap_data[bssid]['x'] = weighted_x
-                            self.ap_data[bssid]['y'] = weighted_y
-                            self.ap_data[bssid]['last_update'] = time.time()
-                        
+                        # Update existing AP
                         self.ap_data[bssid]['rssi'] = rssi
                         self.ap_data[bssid]['beacons'] = beacons
                         self.ap_data[bssid]['essid'] = essid
@@ -419,6 +337,7 @@ class WiFiDataProcessor:
                         self.ap_data[bssid]['color'] = get_rssi_color(rssi)
                         self.ap_data[bssid]['distance'] = distance
             
+            # Remove stale APs
             with self.lock:
                 stale_bssids = set(self.ap_data.keys()) - active_bssids
                 for bssid in stale_bssids:
@@ -426,95 +345,73 @@ class WiFiDataProcessor:
                     self.ap_history.pop(bssid, None)
             
         except Exception as e:
-            logging.error(f"Error updating data: {e}")
+            logging.error(f"❌ Error updating data: {e}")
             import traceback
             traceback.print_exc()
     
     def get_ap_data(self):
+        """Get current AP data with clients"""
         with self.lock:
-             data = []
-             for bssid, ap_info in self.ap_data.items():
-                 freq = channel_to_frequency(ap_info['channel'])
-                 freq_band = "2.4GHz" if freq < 5.0 else "5GHz"
-
-                 # Parse clients for this AP
-                 clients_list = parse_clients(bssid)
-
-                 # Calculate client positions relative to AP
-                 clients_data = []
-                 for client_mac, client_rssi in clients_list:
-                     # Calculate client distance from AP
-                     client_distance = calculate_distance_with_channel(client_rssi, ap_info['channel'])
-
-                     # Generate consistent angle based on client MAC hash
-                     mac_hash = sum(ord(c) for c in client_mac) * 31
-                     angle = (mac_hash % 628) / 100.0  # 0 to 2π
-
-                     # Calculate client position relative to AP
-                     # Client is positioned around the AP
-                     client_x = ap_info['x'] + client_distance * np.cos(angle) * 0.3
-                     client_y = ap_info['y'] + client_distance * np.sin(angle) * 0.3
-
-                     clients_data.append({
-                         'mac': client_mac,
-                         'rssi': client_rssi,
-                         'distance': client_distance,
-                         'x': client_x,
-                         'y': client_y
-                     })
-
-                 data.append({
-                     'bssid': bssid,
-                     'essid': ap_info['essid'] if ap_info['essid'] else "Hidden Network",
-                     'x': ap_info['x'],
-                     'y': ap_info['y'],
-                     'rssi': ap_info['rssi'],
-                     'channel': ap_info['channel'],
-                     'color': ap_info['color'],
-                     'beacons': ap_info['beacons'],
-                     'distance': ap_info['distance'],
-                     'freq_band': freq_band,
-                     'clients': clients_data  # Add clients to AP data
-                 })
-             return data
-    
-    def set_options(self, options):
-        """Update processor options from frontend"""
-        with self.lock:
-            if 'use_beacons' in options:
-                self.use_beacons = options['use_beacons']
-            if 'use_channels' in options:
-                self.use_channels = options['use_channels']
-            if 'position_update_factor' in options:
-                self.position_update_factor = options['position_update_factor']
-            if 'rssi_change_threshold' in options:
-                self.rssi_change_threshold = options['rssi_change_threshold']
-            if 'beacon_change_threshold' in options:
-                self.beacon_change_threshold = options['beacon_change_threshold']
-        
-        return self.get_options()
-    
-    def get_options(self):
-        """Get current processor options"""
-        with self.lock:
-            return {
-                'use_beacons': self.use_beacons,
-                'use_channels': self.use_channels,
-                'position_update_factor': self.position_update_factor,
-                'rssi_change_threshold': self.rssi_change_threshold,
-                'beacon_change_threshold': self.beacon_change_threshold
-            }
+            data = []
+            total_clients = 0
+            
+            for bssid, ap_info in self.ap_data.items():
+                freq = channel_to_frequency(ap_info['channel'])
+                freq_band = "2.4GHz" if freq < 5.0 else "5GHz"
+                
+                # Parse clients for this AP
+                clients_list = parse_clients(bssid)
+                
+                # Calculate client positions
+                clients_data = []
+                for client_mac, client_rssi in clients_list:
+                    client_distance = calculate_distance_with_channel(client_rssi, ap_info['channel'])
+                    
+                    # Hash client MAC for consistent angle
+                    mac_hash = sum(ord(c) for c in client_mac) * 31
+                    angle = (mac_hash % 628) / 100.0
+                    
+                    # Position client relative to AP
+                    client_x = ap_info['x'] + client_distance * np.cos(angle) * 0.3
+                    client_y = ap_info['y'] + client_distance * np.sin(angle) * 0.3
+                    
+                    clients_data.append({
+                        'mac': client_mac,
+                        'rssi': client_rssi,
+                        'distance': client_distance,
+                        'x': client_x,
+                        'y': client_y
+                    })
+                    total_clients += 1
+                
+                data.append({
+                    'bssid': bssid,
+                    'essid': ap_info['essid'] if ap_info['essid'] else "Hidden Network",
+                    'x': ap_info['x'],
+                    'y': ap_info['y'],
+                    'rssi': ap_info['rssi'],
+                    'channel': ap_info['channel'],
+                    'color': ap_info['color'],
+                    'beacons': ap_info['beacons'],
+                    'distance': ap_info['distance'],
+                    'freq_band': freq_band,
+                    'clients': clients_data
+                })
+            
+            if total_clients > 0:
+                logging.info(f"📡 Returning {len(data)} APs with {total_clients} total clients")
+            
+            return data
 
 app = Flask(__name__)
-
 wifi_processor = None
 
 def update_thread_function():
-    """Function to periodically update WiFi data"""
+    """Background thread to update WiFi data"""
     while True:
         try:
             wifi_processor.update_data()
-            time.sleep(1.0)  
+            time.sleep(2.0)
         except Exception as e:
             logging.error(f"Error in update thread: {e}")
 
@@ -531,34 +428,18 @@ def get_data():
         logging.error(f"Error getting data: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/options', methods=['GET', 'POST'])
-def handle_options():
-    try:
-        if request.method == 'POST':
-            options = request.json
-            return jsonify(wifi_processor.set_options(options))
-        else:
-            return jsonify(wifi_processor.get_options())
-    except Exception as e:
-        logging.error(f"Error handling options: {e}")
-        return jsonify({'error': str(e)}), 500
-
-def create_app(input_file=None, use_test_data=False):
+def create_app(input_file=None):
     global wifi_processor
-    
-    wifi_processor = WiFiDataProcessor(input_file, use_test_data)
-    
+    wifi_processor = WiFiDataProcessor(input_file)
     update_thread = threading.Thread(target=update_thread_function, daemon=True)
     update_thread.start()
-    
     return app
 
 if __name__ == '__main__':
     import argparse
     
-    parser = argparse.ArgumentParser(description='WiFi AP Visualizer Web Server')
-    parser.add_argument('-i', '--input-file', help='Path to airodump-ng CSV file')
-    parser.add_argument('-t', '--test', action='store_true', help='Use test data')
+    parser = argparse.ArgumentParser(description='WiFi AP Visualizer with Clients')
+    parser.add_argument('-i', '--input-file', help='Path to AP CSV file', default='live_aps_aps_only.csv')
     parser.add_argument('-p', '--port', type=int, default=5000, help='Web server port')
     parser.add_argument('-d', '--debug', action='store_true', help='Enable debug mode')
     
@@ -568,12 +449,13 @@ if __name__ == '__main__':
         os.environ['DEBUG'] = '1'
         logging.getLogger().setLevel(logging.DEBUG)
     
-    app = create_app(args.input_file, args.test)
+    app = create_app(args.input_file)
     
-    host = '0.0.0.0'
-    port = args.port
+    print("\n" + "=" * 60)
+    print("🌐 WiFi Visualizer Server Starting")
+    print(f"   URL: http://0.0.0.0:{args.port}")
+    print(f"   AP File: {args.input_file}")
+    print(f"   Client Directory: ap_clients/")
+    print("=" * 60 + "\n")
     
-    print(f"WiFi Visualizer running at http://{host}:{port}")
-    print(f"Access from other devices using your computer's IP address")
-    
-    app.run(host=host, port=port, debug=args.debug)
+    app.run(host='0.0.0.0', port=args.port, debug=args.debug)
