@@ -382,6 +382,28 @@
                         <span>Poor (below -75 dBm)</span>
                     </div>
                 </div>
+
+
+
+
+		<div class="legend">
+    						<h3>Node Types</h3>
+    						<div class="legend-item">
+
+        					<div class="legend-color" style="background-color: #00BFFF; border: 1px solid #FFF;"></div>
+        					<span>Client Devices</span>
+    					</div>
+    				<div class="legend-item">
+        			<div class="legend-color" style="background-color: var(--ap-color);"></div>
+        			<span>Access Points</span>
+    			</div>
+		</div>
+
+
+
+
+
+
             </div>
         </div>
         
@@ -537,24 +559,22 @@
         }
         
   
-        function updateVisualization(data) {
+
+
+
+	function updateVisualization(data) {
     const centerX = parseFloat(svg.node().getBoundingClientRect().width) / 2;
     const centerY = parseFloat(svg.node().getBoundingClientRect().height) / 2;
     const vizGroup = svg.select(".viz-group");
-    
-    // Use the same scale factor for positioning as for the range circles
-    const scaleFactor = 10;
-    
 
-    
+    const scaleFactor = 10;
+
     // Update AP nodes
     const nodes = vizGroup.selectAll(".ap-node")
         .data(data, d => d.bssid);
-    
-    // Remove old nodes
+
     nodes.exit().remove();
-    
-    // Add new nodes
+
     const newNodes = nodes.enter()
         .append("circle")
         .attr("class", "ap-node")
@@ -562,17 +582,81 @@
         .on("mouseover", showTooltip)
         .on("mouseout", hideTooltip)
         .on("click", selectAP);
-    
-    // Update all nodes with the new scale factor and jitter
+
     nodes.merge(newNodes)
-        .attr("cx", d => centerX + (d.x * scaleFactor) )
-        .attr("cy", d => centerY + (d.y * scaleFactor) )
+        .attr("cx", d => centerX + (d.x * scaleFactor))
+        .attr("cy", d => centerY + (d.y * scaleFactor))
         .attr("fill", d => d.color)
         .attr("stroke", d => d.bssid === selectedAP ? "#000" : "none")
         .attr("stroke-width", d => d.bssid === selectedAP ? 2 : 0);
-    
-    // We've removed the labels as requested in the previous modification
+
+    // **NEW: Update client nodes**
+    // Flatten all clients from all APs
+    const allClients = [];
+    data.forEach(ap => {
+        if (ap.clients && ap.clients.length > 0) {
+            ap.clients.forEach(client => {
+                allClients.push({
+                    ...client,
+                    ap_bssid: ap.bssid,
+                    ap_color: ap.color
+                });
+            });
+        }
+    });
+
+    const clientNodes = vizGroup.selectAll(".client-node")
+        .data(allClients, d => d.mac);
+
+    clientNodes.exit().remove();
+
+    const newClientNodes = clientNodes.enter()
+        .append("circle")
+        .attr("class", "client-node")
+        .attr("r", 4 / Math.sqrt(zoomLevel))
+        .on("mouseover", showClientTooltip)
+        .on("mouseout", hideTooltip);
+
+    clientNodes.merge(newClientNodes)
+        .attr("cx", d => centerX + (d.x * scaleFactor))
+        .attr("cy", d => centerY + (d.y * scaleFactor))
+        .attr("fill", "#00BFFF")  // Cyan for clients
+        .attr("stroke", "#FFF")
+        .attr("stroke-width", 1);
+
+    // **NEW: Draw lines from AP to clients**
+    const clientLines = vizGroup.selectAll(".client-line")
+        .data(allClients, d => d.mac);
+
+    clientLines.exit().remove();
+
+    const newClientLines = clientLines.enter()
+        .append("line")
+        .attr("class", "client-line")
+        .attr("stroke", "#999")
+        .attr("stroke-width", 1)
+        .attr("stroke-dasharray", "2,2")
+        .attr("opacity", 0.5);
+
+    clientLines.merge(newClientLines)
+        .each(function(d) {
+            // Find the AP this client belongs to
+            const ap = data.find(a => a.bssid === d.ap_bssid);
+            if (ap) {
+                d3.select(this)
+                    .attr("x1", centerX + (ap.x * scaleFactor))
+                    .attr("y1", centerY + (ap.y * scaleFactor))
+                    .attr("x2", centerX + (d.x * scaleFactor))
+                    .attr("y2", centerY + (d.y * scaleFactor));
+            }
+        });
 }
+
+
+
+
+
+
 
 
         // Show tooltip with AP details
@@ -593,6 +677,32 @@
                 .style("top", (event.pageY + 15) + "px")
                 .style("opacity", 1);
         }
+
+
+
+
+	// Show tooltip for clients
+function showClientTooltip(event, d) {
+    if (tooltipTimer) clearTimeout(tooltipTimer);
+
+    const tooltipContent = `
+        <h4>Client Device</h4>
+        <p><strong>MAC:</strong> ${d.mac}</p>
+        <p><strong>Signal:</strong> ${d.rssi} dBm</p>
+        <p><strong>Distance from AP:</strong> ~${d.distance.toFixed(1)}m</p>
+        <p><strong>Connected to:</strong> ${d.ap_bssid}</p>
+    `;
+
+    tooltip.html(tooltipContent)
+        .style("left", (event.pageX + 15) + "px")
+        .style("top", (event.pageY + 15) + "px")
+        .style("opacity", 1);
+}
+
+
+
+
+
         
         // Hide tooltip
         function hideTooltip() {

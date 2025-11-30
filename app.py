@@ -179,6 +179,68 @@ def parse_aps(filename):
     
     return result
 
+
+
+def parse_clients(ap_bssid):
+    """Parse client CSV file for a specific AP"""
+    clients = []
+
+    # Look for client CSV file for this AP
+    client_dir = "ap_clients"
+    if not os.path.exists(client_dir):
+        return clients
+
+    # Find client file for this AP (matches any filename with the BSSID)
+    for filename in os.listdir(client_dir):
+        if filename.startswith(ap_bssid.replace(':', '')) or filename.startswith(ap_bssid):
+            filepath = os.path.join(client_dir, filename)
+
+            try:
+                with open(filepath, 'r') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Find "Station MAC" header
+                    header_line = None
+                    for i, line in enumerate(lines):
+                        if "Station MAC" in line:
+                            header_line = i
+                            break
+
+                    if header_line is not None:
+                        # Parse client lines
+                        for line_index in range(header_line + 1, len(lines)):
+                            line = lines[line_index].strip()
+                            if not line:
+                                break
+
+                            fields = [field.strip() for field in line.split(',')]
+
+                            if len(fields) >= 4:
+                                try:
+                                    client_mac = fields[0].strip()
+                                    power_str = fields[3].strip()
+
+                                    try:
+                                        client_rssi = int(power_str) if power_str.lstrip('-').isdigit() else -100
+                                    except ValueError:
+                                        client_rssi = -100
+
+                                    if client_mac and client_mac != "Station MAC":
+                                        clients.append((client_mac, client_rssi))
+                                except Exception as e:
+                                    logging.debug(f"Error processing client line: {e}")
+            except Exception as e:
+                logging.error(f"Error reading client file: {e}")
+
+            break  # Found the file, no need to continue
+
+    return clients
+
+
+
+
+
 def generate_test_data(num_aps=5):
     """Generate test data for demonstration when no real data is available"""
     aps = []
@@ -369,26 +431,52 @@ class WiFiDataProcessor:
             traceback.print_exc()
     
     def get_ap_data(self):
-        """Get current AP data in a format suitable for JSON serialization"""
         with self.lock:
-            data = []
-            for bssid, ap_info in self.ap_data.items():
-                freq = channel_to_frequency(ap_info['channel'])
-                freq_band = "2.4GHz" if freq < 5.0 else "5GHz"
-                
-                data.append({
-                    'bssid': bssid,
-                    'essid': ap_info['essid'] if ap_info['essid'] else "Hidden Network",
-                    'x': ap_info['x'],
-                    'y': ap_info['y'],
-                    'rssi': ap_info['rssi'],
-                    'channel': ap_info['channel'],
-                    'color': ap_info['color'],
-                    'beacons': ap_info['beacons'],
-                    'distance': ap_info['distance'],
-                    'freq_band': freq_band
-                })
-            return data
+             data = []
+             for bssid, ap_info in self.ap_data.items():
+                 freq = channel_to_frequency(ap_info['channel'])
+                 freq_band = "2.4GHz" if freq < 5.0 else "5GHz"
+
+                 # Parse clients for this AP
+                 clients_list = parse_clients(bssid)
+
+                 # Calculate client positions relative to AP
+                 clients_data = []
+                 for client_mac, client_rssi in clients_list:
+                     # Calculate client distance from AP
+                     client_distance = calculate_distance_with_channel(client_rssi, ap_info['channel'])
+
+                     # Generate consistent angle based on client MAC hash
+                     mac_hash = sum(ord(c) for c in client_mac) * 31
+                     angle = (mac_hash % 628) / 100.0  # 0 to 2π
+
+                     # Calculate client position relative to AP
+                     # Client is positioned around the AP
+                     client_x = ap_info['x'] + client_distance * np.cos(angle) * 0.3
+                     client_y = ap_info['y'] + client_distance * np.sin(angle) * 0.3
+
+                     clients_data.append({
+                         'mac': client_mac,
+                         'rssi': client_rssi,
+                         'distance': client_distance,
+                         'x': client_x,
+                         'y': client_y
+                     })
+
+                 data.append({
+                     'bssid': bssid,
+                     'essid': ap_info['essid'] if ap_info['essid'] else "Hidden Network",
+                     'x': ap_info['x'],
+                     'y': ap_info['y'],
+                     'rssi': ap_info['rssi'],
+                     'channel': ap_info['channel'],
+                     'color': ap_info['color'],
+                     'beacons': ap_info['beacons'],
+                     'distance': ap_info['distance'],
+                     'freq_band': freq_band,
+                     'clients': clients_data  # Add clients to AP data
+                 })
+             return data
     
     def set_options(self, options):
         """Update processor options from frontend"""
