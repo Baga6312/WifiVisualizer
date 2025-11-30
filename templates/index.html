@@ -578,7 +578,7 @@
     const newNodes = nodes.enter()
         .append("circle")
         .attr("class", "ap-node")
-        .attr("r", 8 / Math.sqrt(zoomLevel))
+        .attr("r", 10 / Math.sqrt(zoomLevel))
         .on("mouseover", showTooltip)
         .on("mouseout", hideTooltip)
         .on("click", selectAP);
@@ -613,7 +613,7 @@
     const newClientNodes = clientNodes.enter()
         .append("circle")
         .attr("class", "client-node")
-        .attr("r", 4 / Math.sqrt(zoomLevel))
+        .attr("r", 5 / Math.sqrt(zoomLevel))
         .on("mouseover", showClientTooltip)
         .on("mouseout", hideTooltip);
 
@@ -630,13 +630,14 @@
 
     clientLines.exit().remove();
 
+    
     const newClientLines = clientLines.enter()
-        .append("line")
-        .attr("class", "client-line")
-        .attr("stroke", "#999")
-        .attr("stroke-width", 1)
-        .attr("stroke-dasharray", "2,2")
-        .attr("opacity", 0.5);
+    	.append("line")
+    	.attr("class", "client-line")
+    	.attr("stroke", "#333")              // ← Change #999 to #333 (darker)
+    	.attr("stroke-width", 2)             // ← Change 1 to 2 (thicker)
+    	.attr("stroke-dasharray", "3,3")     // ← Change 2,2 to 3,3 (longer dashes)
+    	.attr("opacity", 0.7); 
 
     clientLines.merge(newClientLines)
         .each(function(d) {
